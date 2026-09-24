@@ -170,8 +170,8 @@
     }
     if (error && error.status === 403) return "令牌没有此仓库的 Contents 写入权限。";
     if (error && error.status === 404) return "找不到存档分支或文件，请确认仓库已完成初始化。";
-    if (/failed to fetch/i.test(message)) {
-      return "无法访问 GitHub API，请检查 VPN、网络或浏览器拦截后重试。";
+    if (/failed to fetch|load failed/i.test(message)) {
+      return "无法访问 GitHub API：请检查网络、VPN 或浏览器拦截设置后重试。";
     }
     if (/loadfailed/i.test(message)) {
       return "游戏加载存档失败：请先刷新页面，等待资源加载完成后再连接云端。";
@@ -183,7 +183,6 @@
     const headers = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": CONFIG.apiVersion,
-      "Cache-Control": "no-cache",
     };
     if (state.token) headers.Authorization = `Bearer ${state.token}`;
     return headers;
