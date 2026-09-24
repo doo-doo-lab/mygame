@@ -163,19 +163,20 @@
   }
 
   function formatError(error) {
+    const message = String(error?.message ?? error ?? "");
     if (error && error.status === 401) return "令牌无效、已过期或已被撤销，请重新创建。";
-    if (error && error.status === 403 && /rate limit/i.test(error.message || "")) {
+    if (error && error.status === 403 && /rate limit/i.test(message)) {
       return "GitHub API 暂时限流，请稍后再试或更换网络。";
     }
     if (error && error.status === 403) return "令牌没有此仓库的 Contents 写入权限。";
     if (error && error.status === 404) return "找不到存档分支或文件，请确认仓库已完成初始化。";
-    if (/failed to fetch/i.test(error?.message || "")) {
+    if (/failed to fetch/i.test(message)) {
       return "无法访问 GitHub API，请检查 VPN、网络或浏览器拦截后重试。";
     }
-    if (/loadfailed/i.test(error?.message || "")) {
-      return "游戏加载存档失败，请刷新页面，等资源加载完成后再连接云端。";
+    if (/loadfailed/i.test(message)) {
+      return "游戏加载存档失败：请先刷新页面，等待资源加载完成后再连接云端。";
     }
-    return `同步失败：${error?.message || error}`;
+    return `同步失败：${message || error}`;
   }
 
   function apiHeaders() {
@@ -276,6 +277,7 @@
 
   async function finishBoot(remote) {
     await waitForGameApi();
+    await new Promise((resolve) => setTimeout(resolve, 500));
     if (remote?.data) {
       state.collecting = true;
       try {
