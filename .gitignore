@@ -1,0 +1,5 @@
+/downloads/
+/game/
+*.save
+*.save.txt
+/.tmp_wps/
