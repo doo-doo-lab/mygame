@@ -19,6 +19,8 @@
     uploading: false,
     uploadTimer: null,
     remoteSha: null,
+    lastSyncedData: null,
+    pendingSave: false,
     saveHandler: null,
   };
 
@@ -110,7 +112,7 @@
     badge.textContent = "云端存档：准备中";
     badge.title = "点击立即同步当前存档";
     badge.addEventListener("click", () => {
-      if (state.ready) void uploadCurrent();
+      if (state.ready) void uploadCurrent({ force: true });
     });
     document.body.appendChild(badge);
   }
@@ -286,8 +288,10 @@
         state.collecting = false;
       }
       state.remoteSha = remote.sha;
+      state.lastSyncedData = remote.data;
       setStatus("云端存档：已读取", "ok");
     } else {
+      state.lastSyncedData = null;
       setStatus("云端存档：暂无文件", "warn");
     }
     state.ready = true;
@@ -295,32 +299,44 @@
       if (!state.collecting) scheduleUpload();
     };
     window.SugarCube?.Save?.onSave?.add(state.saveHandler);
-    if (remote?.data) scheduleUpload();
   }
 
   function scheduleUpload() {
     if (!state.ready) return;
+    state.pendingSave = true;
     clearTimeout(state.uploadTimer);
     state.uploadTimer = setTimeout(() => void uploadCurrent(), 1200);
   }
 
-  async function uploadCurrent() {
+  async function uploadCurrent({ force = false } = {}) {
     if (!state.ready || state.uploading || typeof window.SerializeGame !== "function") return;
     state.uploading = true;
+    state.pendingSave = false;
     clearTimeout(state.uploadTimer);
-    setStatus("云端存档：同步中…", "info");
     try {
       state.collecting = true;
       const data = window.SerializeGame();
       state.collecting = false;
       if (typeof data !== "string" || !data) throw new Error("游戏没有返回有效存档");
+
+      // SugarCube can emit save notifications without changing the save data.
+      // Avoid a network round-trip and, more importantly, avoid showing a fake
+      // "syncing" state for an already-synced save.
+      if (!force && data === state.lastSyncedData) {
+        setStatus("云端存档：已同步", "ok");
+        return;
+      }
+
+      setStatus("云端存档：同步中…", "info");
       const remote = await getRemoteSave();
       if (remote?.data === data) {
         state.remoteSha = remote.sha;
+        state.lastSyncedData = data;
         setStatus("云端存档：已同步", "ok");
         return;
       }
       state.remoteSha = await putRemoteSave(data, remote?.sha || null);
+      state.lastSyncedData = data;
       setStatus("云端存档：已同步", "ok");
     } catch (e) {
       state.collecting = false;
@@ -328,6 +344,10 @@
       console.error("[DoL cloud save]", e);
     } finally {
       state.uploading = false;
+      if (state.pendingSave) {
+        clearTimeout(state.uploadTimer);
+        state.uploadTimer = setTimeout(() => void uploadCurrent(), 1200);
+      }
     }
   }
 
