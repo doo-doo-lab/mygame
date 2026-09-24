@@ -22,6 +22,9 @@
     saveHandler: null,
   };
 
+  const GAME_API_WAIT_MS = 60_000;
+  const GAME_API_POLL_MS = 100;
+
   const $ = (selector) => document.querySelector(selector);
 
   function setStatus(message, tone = "info") {
@@ -161,8 +164,17 @@
 
   function formatError(error) {
     if (error && error.status === 401) return "令牌无效、已过期或已被撤销，请重新创建。";
+    if (error && error.status === 403 && /rate limit/i.test(error.message || "")) {
+      return "GitHub API 暂时限流，请稍后再试或更换网络。";
+    }
     if (error && error.status === 403) return "令牌没有此仓库的 Contents 写入权限。";
     if (error && error.status === 404) return "找不到存档分支或文件，请确认仓库已完成初始化。";
+    if (/failed to fetch/i.test(error?.message || "")) {
+      return "无法访问 GitHub API，请检查 VPN、网络或浏览器拦截后重试。";
+    }
+    if (/loadfailed/i.test(error?.message || "")) {
+      return "游戏加载存档失败，请刷新页面，等资源加载完成后再连接云端。";
+    }
     return `同步失败：${error?.message || error}`;
   }
 
@@ -201,7 +213,14 @@
     const response = await fetch(saveUrl(), { headers: apiHeaders(), cache: "no-store" });
     if (response.status === 404) return null;
     if (!response.ok) {
-      const error = new Error(`GitHub API ${response.status}`);
+      let message = `GitHub API ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (payload?.message) message += `: ${payload.message}`;
+      } catch {
+        // Keep the HTTP status when GitHub does not return JSON.
+      }
+      const error = new Error(message);
       error.status = response.status;
       throw error;
     }
@@ -225,7 +244,14 @@
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      const error = new Error(`GitHub API ${response.status}`);
+      let message = `GitHub API ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (payload?.message) message += `: ${payload.message}`;
+      } catch {
+        // Keep the HTTP status when GitHub does not return JSON.
+      }
+      const error = new Error(message);
       error.status = response.status;
       throw error;
     }
@@ -233,11 +259,26 @@
     return payload.content?.sha || null;
   }
 
+  async function waitForGameApi() {
+    const deadline = Date.now() + GAME_API_WAIT_MS;
+    while (Date.now() < deadline) {
+      if (
+        window.SugarCube?.Save
+        && typeof window.DeserializeGame === "function"
+        && typeof window.SerializeGame === "function"
+      ) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, GAME_API_POLL_MS));
+    }
+    throw new Error("游戏资源加载未完成，请刷新页面后重试");
+  }
+
   async function finishBoot(remote) {
+    await waitForGameApi();
     if (remote?.data) {
       state.collecting = true;
       try {
-        if (typeof window.DeserializeGame !== "function") throw new Error("游戏加载入口尚未就绪");
         const result = window.DeserializeGame(remote.data);
         if (result === null) throw new Error("云端存档无法被当前游戏版本读取");
       } finally {
